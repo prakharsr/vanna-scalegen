@@ -39,6 +39,16 @@ class Qdrant_VectorStore(VannaBase):
         TypeError: If config["client"] is not a `qdrant_client.QdrantClient` instance
     """
 
+    documentation_collection_name = "documentation"
+    ddl_collection_name = "ddl"
+    sql_collection_name = "sql"
+
+    id_suffixes = {
+        ddl_collection_name: "ddl",
+        documentation_collection_name: "doc",
+        sql_collection_name: "sql",
+    }
+
     def __init__(
         self,
         config={},
@@ -70,21 +80,19 @@ class Qdrant_VectorStore(VannaBase):
         self.collection_params = config.get("collection_params", {})
         self.distance_metric = config.get("distance_metric", models.Distance.COSINE)
         self.documentation_collection_name = config.get(
-            "documentation_collection_name", "documentation"
+            "documentation_collection_name", self.documentation_collection_name
         )
         self.ddl_collection_name = config.get(
-            "ddl_collection_name", "ddl"
+            "ddl_collection_name", self.ddl_collection_name
         )
         self.sql_collection_name = config.get(
-            "sql_collection_name", "sql"
+            "sql_collection_name", self.sql_collection_name
         )
-
         self.id_suffixes = {
-            self.ddl_collection_name: "ddl",
-            self.documentation_collection_name: "doc",
-            self.sql_collection_name: "sql",
+            self.ddl_collection_name: self.ddl_collection_name,
+            self.documentation_collection_name: self.documentation_collection_name,
+            self.sql_collection_name: self.sql_collection_name,
         }
-
         self._setup_collections()
 
     def add_question_sql(self, question: str, sql: str, **kwargs) -> str:
@@ -123,7 +131,7 @@ class Qdrant_VectorStore(VannaBase):
         )
         return self._format_point_id(id, self.ddl_collection_name)
 
-    def add_documentation(self, documentation: str, **kwargs) -> str:
+    def add_documentation(self, documentation: str, query_type: str, feedback: str,  **kwargs) -> str:
         id = deterministic_uuid(documentation)
 
         self._client.upsert(
@@ -134,6 +142,9 @@ class Qdrant_VectorStore(VannaBase):
                     vector=self.generate_embedding(documentation),
                     payload={
                         "documentation": documentation,
+                        "query_type": query_type,
+                        "feedback":feedback
+
                     },
                 )
             ],
@@ -185,6 +196,8 @@ class Qdrant_VectorStore(VannaBase):
 
         if doc_data := self._get_all_points(self.documentation_collection_name):
             document_list = [data.payload["documentation"] for data in doc_data]
+            feedback_list = [data.payload["feedback"] for data in doc_data]
+            query_type_list = [data.payload["query_type"] for data in doc_data]
             id_list = [
                 self._format_point_id(data.id, self.documentation_collection_name)
                 for data in doc_data
@@ -195,6 +208,8 @@ class Qdrant_VectorStore(VannaBase):
                     "id": id_list,
                     "question": [None for _ in document_list],
                     "content": document_list,
+                    "feedback":feedback_list,
+                    "query_type":query_type_list
                 }
             )
 
@@ -209,7 +224,8 @@ class Qdrant_VectorStore(VannaBase):
             id, collection_name = self._parse_point_id(id)
             res = self._client.delete(collection_name, points_selector=[id])
             return True
-        except ValueError:
+        except Exception as e:
+            print("error", e)
             return False
 
     def remove_collection(self, collection_name: str) -> bool:
@@ -261,7 +277,7 @@ class Qdrant_VectorStore(VannaBase):
             with_payload=True,
         )
 
-        return [result.payload["documentation"] for result in results]
+        return [result.payload for result in results]
 
     def generate_embedding(self, data: str, **kwargs) -> List[float]:
         embedding_model = self._client._get_or_init_model(

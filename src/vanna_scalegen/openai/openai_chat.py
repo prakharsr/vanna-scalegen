@@ -19,6 +19,11 @@ class OpenAI_Chat(VannaBase):
         if "max_tokens" in config:
             self.max_tokens = config["max_tokens"]
 
+        if "is_scalegen_fc_model" in config:
+            self.is_scalegen_fc_model = config["is_scalegen_fc_model"]
+        else:
+            self.is_scalegen_fc_model = False
+
         if "api_type" in config:
             raise Exception(
                 "Passing api_type is now deprecated. Please pass an OpenAI client instead."
@@ -54,7 +59,7 @@ class OpenAI_Chat(VannaBase):
     def assistant_message(self, message: str) -> any:
         return {"role": "assistant", "content": message}
 
-    def submit_prompt(self, prompt, **kwargs) -> str:
+    async def submit_prompt(self, prompt, **kwargs) -> str:
         if prompt is None:
             raise Exception("Prompt is None")
 
@@ -72,7 +77,7 @@ class OpenAI_Chat(VannaBase):
             print(
                 f"Using model {model} for {num_tokens} tokens (approx)"
             )
-            response = self.client.chat.completions.create(
+            response = await self.client.chat.completions.create(
                 model=model,
                 messages=prompt,
                 max_tokens=self.max_tokens,
@@ -84,7 +89,7 @@ class OpenAI_Chat(VannaBase):
             print(
                 f"Using model {engine} for {num_tokens} tokens (approx)"
             )
-            response = self.client.chat.completions.create(
+            response = await self.client.chat.completions.create(
                 engine=engine,
                 messages=prompt,
                 max_tokens=self.max_tokens,
@@ -95,7 +100,7 @@ class OpenAI_Chat(VannaBase):
             print(
                 f"Using engine {self.config['engine']} for {num_tokens} tokens (approx)"
             )
-            response = self.client.chat.completions.create(
+            response = await self.client.chat.completions.create(
                 engine=self.config["engine"],
                 messages=prompt,
                 max_tokens=self.max_tokens,
@@ -106,13 +111,25 @@ class OpenAI_Chat(VannaBase):
             print(
                 f"Using model {self.config['model']} for {num_tokens} tokens (approx)"
             )
-            response = self.client.chat.completions.create(
-                model=self.config["model"],
-                messages=prompt,
-                max_tokens=self.max_tokens,
-                stop=None,
-                temperature=self.temperature,
-            )
+            response = None
+            if(self.is_scalegen_fc_model):
+                response = await self.client.chat.completions.create(
+                    model=self.config["model"],
+                    messages=prompt,
+                    max_tokens=self.max_tokens,
+                    stop=None,
+                    temperature=self.temperature,
+                    stream=False,
+                    is_fireworks=True
+                )
+            else:
+                response = await self.client.chat.completions.create(
+                    model=self.config["model"],
+                    messages=prompt,
+                    max_tokens=self.max_tokens,
+                    stop=None,
+                    temperature=self.temperature
+                )
         else:
             if num_tokens > 3500:
                 model = "gpt-3.5-turbo-16k"
@@ -120,7 +137,7 @@ class OpenAI_Chat(VannaBase):
                 model = "gpt-3.5-turbo"
 
             print(f"Using model {model} for {num_tokens} tokens (approx)")
-            response = self.client.chat.completions.create(
+            response = await self.client.chat.completions.create(
                 model=model,
                 messages=prompt,
                 max_tokens=self.max_tokens,

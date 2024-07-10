@@ -90,7 +90,7 @@ class VannaBase(ABC):
 
         return f"Respond in the {self.language} language."
 
-    def generate_sql(self, question: str, allow_llm_to_see_data=False, **kwargs) -> str:
+    async def generate_sql(self, question: str, allow_llm_to_see_data=False, **kwargs) -> str:
         """
         Example:
         ```python
@@ -133,7 +133,7 @@ class VannaBase(ABC):
             **kwargs,
         )
         self.log(title="SQL Prompt", message=prompt)
-        llm_response = self.submit_prompt(prompt, **kwargs)
+        llm_response = await self.submit_prompt(prompt, **kwargs)
         self.log(title="LLM Response", message=llm_response)
 
         if 'intermediate_sql' in llm_response:
@@ -156,7 +156,7 @@ class VannaBase(ABC):
                         **kwargs,
                     )
                     self.log(title="Final SQL Prompt", message=prompt)
-                    llm_response = self.submit_prompt(prompt, **kwargs)
+                    llm_response = await self.submit_prompt(prompt, **kwargs)
                     self.log(title="LLM Response", message=llm_response)
                 except Exception as e:
                     return f"Error running intermediate SQL: {e}"
@@ -256,7 +256,7 @@ class VannaBase(ABC):
 
         return False
 
-    def generate_followup_questions(
+    async def generate_followup_questions(
         self, question: str, sql: str, df: pd.DataFrame, n_questions: int = 5, **kwargs
     ) -> list:
         """
@@ -287,7 +287,7 @@ class VannaBase(ABC):
             ),
         ]
 
-        llm_response = self.submit_prompt(message_log, **kwargs)
+        llm_response = await self.submit_prompt(message_log, **kwargs)
 
         numbers_removed = re.sub(r"^\d+\.\s*", "", llm_response, flags=re.MULTILINE)
         return numbers_removed.split("\n")
@@ -305,7 +305,7 @@ class VannaBase(ABC):
 
         return [q["question"] for q in question_sql]
 
-    def generate_summary(self, question: str, df: pd.DataFrame, **kwargs) -> str:
+    async def generate_summary(self, question: str, df: pd.DataFrame, **kwargs) -> str:
         """
         **Example:**
         ```python
@@ -332,7 +332,7 @@ class VannaBase(ABC):
             ),
         ]
 
-        summary = self.submit_prompt(message_log, **kwargs)
+        summary = await self.submit_prompt(message_log, **kwargs)
 
         return summary
 
@@ -625,7 +625,7 @@ class VannaBase(ABC):
         return message_log
 
     @abstractmethod
-    def submit_prompt(self, prompt, **kwargs) -> str:
+    async def submit_prompt(self, prompt, **kwargs) -> str:
         """
         Example:
         ```python
@@ -647,8 +647,8 @@ class VannaBase(ABC):
         """
         pass
 
-    def generate_question(self, sql: str, **kwargs) -> str:
-        response = self.submit_prompt(
+    async def generate_question(self, sql: str, **kwargs) -> str:
+        response = await self.submit_prompt(
             [
                 self.system_message(
                     "The user will give you SQL and you will try to guess what the business question this query is answering. Return just the question without any additional explanation. Do not reference the table name in the question."
@@ -684,7 +684,7 @@ class VannaBase(ABC):
 
         return plotly_code
 
-    def generate_plotly_code(
+    async def generate_plotly_code(
         self, question: str = None, sql: str = None, df_metadata: str = None, **kwargs
     ) -> str:
         if question is not None:
@@ -704,7 +704,7 @@ class VannaBase(ABC):
             ),
         ]
 
-        plotly_code = self.submit_prompt(message_log, kwargs=kwargs)
+        plotly_code = await self.submit_prompt(message_log, kwargs=kwargs)
 
         return self._sanitize_plotly_code(self._extract_python_code(plotly_code))
 
@@ -1704,12 +1704,12 @@ class VannaBase(ABC):
                 return sql, None, None
         return sql, df, fig
 
-    def train(
+    async def train(
         self,
         question: str = None,
         sql: str = None,
         ddl: str = None,
-        documentation: str = None,
+        documentation: dict = None,
         plan: TrainingPlan = None,
     ) -> str:
         """
@@ -1738,11 +1738,11 @@ class VannaBase(ABC):
 
         if documentation:
             print("Adding documentation....")
-            return self.add_documentation(documentation)
+            return self.add_documentation(documentation=documentation["documentation"], query_type=documentation["query_type"], feedback=documentation["feedback"])
 
         if sql:
-            if question is None:
-                question = self.generate_question(sql)
+            if question is None or question == "":
+                question = await self.generate_question(sql)
                 print("Question generated with sql:", question, "\nAdding SQL...")
             return self.add_question_sql(question=question, sql=sql)
 
