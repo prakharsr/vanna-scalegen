@@ -34,6 +34,7 @@ class Qdrant_VectorStore(VannaBase):
             - documentation_collection_name: Name of the collection to store documentation. Defaults to `"documentation"`.
             - ddl_collection_name: Name of the collection to store DDL. Defaults to `"ddl"`.
             - sql_collection_name: Name of the collection to store SQL. Defaults to `"sql"`.
+            - conversation_collection_name: Name of the collection to store conversation. Defaults to `"conversation"`.
 
     Raises:
         TypeError: If config["client"] is not a `qdrant_client.QdrantClient` instance
@@ -42,11 +43,13 @@ class Qdrant_VectorStore(VannaBase):
     documentation_collection_name = "documentation"
     ddl_collection_name = "ddl"
     sql_collection_name = "sql"
+    conversation_collection_name = "conversation"
 
     id_suffixes = {
         ddl_collection_name: "ddl",
         documentation_collection_name: "doc",
         sql_collection_name: "sql",
+        conversation_collection_name: "conversation"
     }
 
     def __init__(
@@ -79,6 +82,8 @@ class Qdrant_VectorStore(VannaBase):
         self.fastembed_model = config.get("fastembed_model", "BAAI/bge-small-en-v1.5")
         self.collection_params = config.get("collection_params", {})
         self.distance_metric = config.get("distance_metric", models.Distance.COSINE)
+        self.conversation_collection_name = config.get(
+            "conversation_collection_name",self.conversation_collection_name)
         self.documentation_collection_name = config.get(
             "documentation_collection_name", self.documentation_collection_name
         )
@@ -92,6 +97,7 @@ class Qdrant_VectorStore(VannaBase):
             self.ddl_collection_name: self.ddl_collection_name,
             self.documentation_collection_name: self.documentation_collection_name,
             self.sql_collection_name: self.sql_collection_name,
+            self.conversation_collection_name: self.conversation_collection_name
         }
         self._setup_collections()
 
@@ -157,6 +163,7 @@ class Qdrant_VectorStore(VannaBase):
 
         if sql_data := self._get_all_points(self.sql_collection_name):
             question_list = [data.payload["question"] for data in sql_data]
+            query_type_list = [data.payload["query_type"] for data in sql_data]
             sql_list = [data.payload["sql"] for data in sql_data]
             id_list = [
                 self._format_point_id(data.id, self.sql_collection_name)
@@ -168,15 +175,16 @@ class Qdrant_VectorStore(VannaBase):
                     "id": id_list,
                     "question": question_list,
                     "content": sql_list,
+                    "query_type":query_type_list
+
                 }
             )
-
-            df_sql["training_data_type"] = "sql"
 
             df = pd.concat([df, df_sql])
 
         if ddl_data := self._get_all_points(self.ddl_collection_name):
             ddl_list = [data.payload["ddl"] for data in ddl_data]
+            query_type_list = [data.payload["query_type"] for data in ddl_data]
             id_list = [
                 self._format_point_id(data.id, self.ddl_collection_name)
                 for data in ddl_data
@@ -187,10 +195,9 @@ class Qdrant_VectorStore(VannaBase):
                     "id": id_list,
                     "question": [None for _ in ddl_list],
                     "content": ddl_list,
+                    "query_type":query_type_list
                 }
             )
-
-            df_ddl["training_data_type"] = "ddl"
 
             df = pd.concat([df, df_ddl])
 
@@ -206,14 +213,31 @@ class Qdrant_VectorStore(VannaBase):
             df_doc = pd.DataFrame(
                 {
                     "id": id_list,
-                    "question": [None for _ in document_list],
                     "content": document_list,
                     "feedback":feedback_list,
                     "query_type":query_type_list
                 }
             )
 
-            df_doc["training_data_type"] = "documentation"
+            df = pd.concat([df, df_doc])
+
+        if conv_data := self._get_all_points(self.conversation_collection_name):
+            conversation_list = [data.payload["documentation"] for data in conv_data]
+            feedback_list = [data.payload["feedback"] for data in conv_data]
+            query_type_list = [data.payload["query_type"] for data in conv_data]
+            id_list = [
+                self._format_point_id(data.id, self.conversation_collection_name)
+                for data in conv_data
+            ]
+
+            df_doc = pd.DataFrame(
+                {
+                    "id": id_list,
+                    "content": conversation_list,
+                    "feedback":feedback_list,
+                    "query_type":query_type_list
+                }
+            )
 
             df = pd.concat([df, df_doc])
 
